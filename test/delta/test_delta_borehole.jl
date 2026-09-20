@@ -1,0 +1,103 @@
+@testitem "delta borehole sampling" setup=[WRS] begin
+    using Distributions
+    using DataFrames
+    using CSVFiles
+    using DataStructures
+
+    import GlobalSensitivityAnalysis: sample
+
+    # define the (uncertain) parameters of the problem and their distributions
+    data = DeltaData(
+        params = OrderedDict(
+            :rw => Normal(0.10, 0.0161812),
+            :r => LogNormal(7.71, 1.0056),
+            :Tu => Uniform(63070, 115600),
+            :Hu => Uniform(990, 1110),
+            :Tl => Uniform(63.1, 116),
+            :Hl => Uniform(700, 820),
+            :L => Uniform(1120, 1680),
+            :Kw => Uniform(9855, 12045)
+        ),
+        N = 1000
+    )
+
+    N = data.N
+    D = length(data.params)
+
+    py_samples = load(pkgdir(GlobalSensitivityAnalysis, "test/data/delta/py_borehole/py_samples.csv"), header_exists=false, colnames = ["rw", "r", "Tu", "Hu", "Tl", "Hl", "L", "Kw"]) |> DataFrame
+    julia_samples = sample(data) 
+
+    quants = [0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99]
+    sig_level = 0.05
+
+    for i = 1:D
+        sampleA = py_samples[:,i]
+        sampleB = julia_samples[:,i]
+
+        # Run WRS quantile matching
+        results = WRS.pb2gen(sampleA, sampleB, quantiles = quants) |> DataFrame
+
+        @test sum(results[!,:signif]) == 0
+    end
+end
+
+@testitem "delta borehole analysis vs SALib.py" begin
+    using Distributions
+    using DataFrames
+    using CSVFiles
+    using DataStructures
+
+    import GlobalSensitivityAnalysis: borehole
+    import StatsBase: ordinalrank
+
+    ATOL_delta = 1e-3
+    ATOL_sample = 1e-8
+    ATOL_CI = 1e-2
+
+    # define the (uncertain) parameters of the problem and their distributions
+    data = DeltaData(
+        params = OrderedDict(
+            :rw => Normal(0.10, 0.0161812),
+            :r => LogNormal(7.71, 1.0056),
+            :Tu => Uniform(63070, 115600),
+            :Hu => Uniform(990, 1110),
+            :Tl => Uniform(63.1, 116),
+            :Hl => Uniform(700, 820),
+            :L => Uniform(1120, 1680),
+            :Kw => Uniform(9855, 12045)
+        ),
+        N = 1000
+    )
+
+    N = data.N
+    D = length(data.params)
+
+    # Get the samples
+    samples = load(pkgdir(GlobalSensitivityAnalysis, "test/data/delta/py_borehole/py_samples.csv"), header_exists=false, colnames = ["rw", "r", "Tu", "Hu", "Tl", "Hl", "L", "Kw"]) |> DataFrame
+    samples = Matrix(samples)
+
+    # check borehole
+    python_Y = load(pkgdir(GlobalSensitivityAnalysis, "test/data/delta/py_borehole/py_borehole.csv"), header_exists=false) |> DataFrame
+    julia_Y = borehole(samples)
+    @test python_Y[:,1] ≈ julia_Y atol = ATOL_sample
+
+    # julia results
+    julia_results = analyze(data, samples, julia_Y; num_resamples = 1_000) 
+
+    # python results
+    py_firstorder = load(pkgdir(GlobalSensitivityAnalysis, "test/data/delta/py_borehole/py_firstorder.csv"), header_exists=false) |> DataFrame
+    py_delta = load(pkgdir(GlobalSensitivityAnalysis, "test/data/delta/py_borehole/py_delta.csv"), header_exists=false) |> DataFrame
+    py_firstorder_conf = load(pkgdir(GlobalSensitivityAnalysis, "test/data/delta/py_borehole/py_firstorder_conf.csv"), header_exists=false) |> DataFrame
+    py_delta_conf = load(pkgdir(GlobalSensitivityAnalysis, "test/data/delta/py_borehole/py_delta_conf.csv"), header_exists=false) |> DataFrame
+
+    # test indices
+    @test julia_results[:firstorder] ≈ Matrix(py_firstorder) atol = ATOL_delta
+    @test ordinalrank(julia_results[:firstorder]) == ordinalrank(py_firstorder[!,:Column1])
+
+    @test julia_results[:delta] ≈ Matrix(py_delta) atol = 0.05 # TODO - this seems too high?
+    @test ordinalrank(julia_results[:delta]) == ordinalrank(py_delta[!,:Column1])
+
+    # test confidence intervals
+    @test julia_results[:firstorder_conf] ≈ Matrix(py_firstorder_conf) atol = ATOL_CI
+    @test julia_results[:delta_conf] ≈ Matrix(py_delta_conf) atol = ATOL_CI
+end

@@ -1,12 +1,3 @@
-using Test
+using TestItemRunner
 
-@testset "Compare to SALib.py" begin
-    include("test_sobolsequence.jl")
-    include("test_uniform.jl")
-    include("test_nonuniform.jl")
-    include("test_sobolCI.jl")
-end
-
-@testset "Unit Testing" begin
-    include("unit_tests.jl")
-end
+@run_package_tests

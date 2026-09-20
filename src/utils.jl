@@ -1,7 +1,3 @@
-using Distributions
-using DataStructures
-using Statistics
-
 """
     SobolData
 
@@ -22,22 +18,50 @@ mutable struct SobolData
     end
 end
 
+"""
+    DeltaData
+
+A struct which holds all information needed for the sampling and analysis of a
+specific problem using Delta Analysis:
+
+`params::Union{OrderedDict{Symbol, <:Any}, Nothing} = nothing`: a dictionary mapping parameter names to their Distribution
+`N::Int = 1000`: the number of runs
+"""
+mutable struct DeltaData
+    params::Union{OrderedDict{Symbol, <:Any}, Nothing}
+    N::Int 
+
+    function DeltaData(;params= nothing, N = 1000)
+        return new(params, N)
+    end
+end
 
 """
-    scale_sobol_seq!(sequence::AbstractArray{<:Number, N}, dists::AbstractArray{T, N})
+    scale_samples!(sequence::AbstractArray{<:Number, N1}, dists::AbstractArray{T, N2})
 
 Rescale a Sobol `sequence` of parameters from the 0-to-1 range to their corresponding 
-univeariate distributions `dists`.  
+univariate distributions `dists`. 
 """
-function scale_sobol_seq!(sequence::AbstractArray{<:Number, N1}, dists::AbstractArray{T, N2}) where T where N1 where N2
+function scale_samples!(sequence::AbstractArray{<:Number, N1}, dists::AbstractArray{T, N2}) where T where N1 where N2
     D = length(dists) # number of parameters
+    duplicate = size(sequence,2) == 2*D # sobol requires twice as many columns as D
+
     for param in 1:D
         dist = dists[param]
-        if typeof(dist) <: UnivariateDistribution
-            sequence[:, [param, param + D]] = quantile.(dist, sequence[:, [param, param + D]])
-        # temporary fix to problem calling quantile. on a EmpiricalDistribution from Mimi
+        if duplicate
+            if typeof(dist) <: UnivariateDistribution
+                sequence[:, [param, param + D]] = quantile.(dist, sequence[:, [param, param + D]])
+            # temporary fix to problem calling quantile on a EmpiricalDistribution from Mimi
+            else
+                sequence[:, [param, param + D]] = quantile(dist, sequence[:, [param, param + D]])
+            end
         else
-            sequence[:, [param, param + D]] = quantile(dist, sequence[:, [param, param + D]])
+            if typeof(dist) <: UnivariateDistribution
+                sequence[:, param] = quantile.(dist, sequence[:, param])
+            # temporary fix to problem calling quantile on a EmpiricalDistribution from Mimi
+            else
+                sequence[:, param] = quantile(dist, sequence[:, param])
+            end
         end
     end
 end
